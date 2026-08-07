@@ -7,7 +7,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
-  // Fallback chain for libraries loading
+  // Some networks (corporate proxies, some messaging-app in-app browsers) block one CDN
+  // but not another. Loading the libraries with a fallback chain makes the shared,
+  // data-embedded copy of this dashboard far more likely to render correctly everywhere.
   window.__libLoadFailed = false;
   (function(){
     function tryFallbacks(urls, onDone){
@@ -53,7 +55,7 @@
   })();
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght=400;500;600;700&family=Inter:wght=400;500;600;700&family=IBM+Plex+Mono:wght=400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root{
     --bg:#EDEAE2;
@@ -115,8 +117,6 @@
   button.primary{background:var(--accent);color:#FFF8EE;border-color:var(--accent);}
   button.primary:hover{background:#B25E0E;}
   button.ghost{background:transparent;}
-  button.success{background:var(--good);color:#FFF8EE;border-color:var(--good);}
-  button.success:hover{background:#2f5227;}
   button:disabled{opacity:0.4;cursor:not-allowed;}
   input[type=file]{display:none;}
 
@@ -134,22 +134,26 @@
     padding:2px 8px;font-size:10px;border-radius:12px;background:transparent;border:1px solid var(--line);
   }
 
-  /* ---------- FILTERS PANEL ---------- */
-  .filter-bar{
-    background:var(--bg-panel);border:1px solid var(--line);border-radius:6px;
+  .dup-panel{
+    background:#FBF3E7;border:1px solid rgba(201,106,18,0.35);border-radius:6px;
     padding:14px 18px;margin-bottom:18px;
-    display:flex;gap:14px;align-items:center;flex-wrap:wrap;
   }
-  .filter-bar span.label{
-    font-family:'IBM Plex Mono',monospace;font-size:11.5px;font-weight:600;
-    color:var(--accent-dim);text-transform:uppercase;letter-spacing:0.5px;
+  .dup-panel h4{
+    margin:0 0 4px;font-family:'Oswald',sans-serif;text-transform:uppercase;font-size:13px;
+    letter-spacing:0.5px;color:var(--accent-dim);
   }
-  .filter-select{
-    background:var(--bg-panel-2);border:1px solid var(--line);border-radius:4px;
-    padding:7px 12px;color:var(--ink);font-family:'Inter',sans-serif;font-size:12.5px;
-    cursor:pointer;outline:none;min-width:130px;
+  .dup-panel .hint{font-size:12px;color:var(--muted);margin-bottom:10px;}
+  .dup-row{
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    padding:8px 0;border-top:1px dashed rgba(33,30,26,0.15);font-size:13px;
   }
-  .filter-select:hover{border-color:var(--accent);}
+  .dup-row:first-of-type{border-top:none;}
+  .dup-row .names{flex:1;min-width:220px;}
+  .dup-row .names b{font-weight:600;}
+  .dup-row .arrow{color:var(--muted);margin:0 4px;}
+  .dup-row .score{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--muted);}
+  .dup-row button{padding:5px 12px;font-size:12px;}
+  .dup-row button.merge{background:var(--good);color:#fff;border-color:var(--good);}
 
   /* ---------- EMPTY STATE ---------- */
   .empty{
@@ -295,13 +299,13 @@
     </div>
     <div class="top-actions">
       <button class="ghost" id="resetBtn" style="display:none;">Effacer les données</button>
-      <button class="success" id="exportBtn" style="display:none;">📥 Exporter Excel</button>
       <button class="primary" id="importBtn">Importer un fichier</button>
       <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
     </div>
   </header>
 
   <div class="sources-status" id="sourcesStatus"></div>
+  <div id="dupPanel"></div>
 
   <div id="emptyState" class="empty">
     <div class="icon">&#128721;</div>
@@ -316,22 +320,6 @@
   </div>
 
   <div id="dashboard" style="display:none;">
-
-    <!-- FILTERS PANEL -->
-    <div class="filter-bar" id="filterBar">
-      <span class="label">📅 Filtrer la période :</span>
-      <select id="yearFilter" class="filter-select">
-        <option value="all">Toutes les années</option>
-      </select>
-      <select id="startPeriodFilter" class="filter-select">
-        <option value="all">Début de période</option>
-      </select>
-      <span style="font-size: 13px; color: var(--muted);">à</span>
-      <select id="endPeriodFilter" class="filter-select">
-        <option value="all">Fin de période</option>
-      </select>
-      <button class="ghost" id="clearFiltersBtn" style="padding: 6px 12px; font-size: 12px;">Réinitialiser les filtres</button>
-    </div>
 
     <div class="tickets" id="tickets"></div>
 
@@ -382,34 +370,12 @@
     </div>
   </div>
 
-  <footer>Les données restent stockées localement — chaque import s'ajoute à l'historique existant.</footer>
+  <footer>Les données restent stockées localement pour cette conversation — chaque import s'ajoute à l'historique existant (utilisez "Effacer les données" pour repartir de zéro).</footer>
 </div>
 
 <script>
 (function(){
   "use strict";
-
-  // Adaptive Hybrid Storage (IA Sandbox or Standard LocalStorage fallback)
-  const store = {
-    async get(key) {
-      if (window.storage && typeof window.storage.get === 'function') {
-        return await window.storage.get(key, false);
-      }
-      return { value: localStorage.getItem(key) };
-    },
-    async set(key, val) {
-      if (window.storage && typeof window.storage.set === 'function') {
-        return await window.storage.set(key, val, false);
-      }
-      localStorage.setItem(key, val);
-    },
-    async delete(key) {
-      if (window.storage && typeof window.storage.delete === 'function') {
-        return await window.storage.delete(key, false);
-      }
-      localStorage.removeItem(key);
-    }
-  };
 
   function bootWhenReady(){
     if(window.__ensureLibs){
@@ -422,7 +388,8 @@
   function startApp(){
     if(typeof Chart === 'undefined' || typeof XLSX === 'undefined'){
       const el = document.getElementById('subLine');
-      if(el) el.innerHTML = '<span style="color:var(--bad);">Connexion internet requise au premier chargement (bibliothèques indisponibles) — réessayez avec une connexion active.</span>';
+      if(el) el.innerHTML = '<span style="color:var(--bad);">Connexion internet requise au premier chargement (bibliothèques de graphiques indisponibles) — réessayez avec une connexion active.</span>';
+      // Still render whatever doesn't depend on the missing library (tickets/table use plain data).
     }
 
   const MONTHS_FR = ['Janv.','Févr.','Mars','Avr.','Mai','Juin','Juil.','Août','Sept.','Oct.','Nov.','Déc.'];
@@ -430,15 +397,12 @@
   const STORAGE_KEY_AMOUNTS = 'supplier-amounts-v1';
   const STORAGE_KEY_ORDERS = 'supplier-orders-v1';
 
-  let amountsSource = null;
-  let ordersSource = null;
-  let dataset = null;
+  let amountsSource = null; // parsed from the wide "1 row per supplier / 1 col per month" file
+  let ordersSource = null;  // parsed & aggregated from a "1 row per purchase order" transaction log
+  let dataset = null;       // unified view built from whichever source(s) are loaded
   let sortState = {key:'total', dir:'desc'};
   let evolChartInstance = null, topChartInstance = null, matrixChartInstance = null;
-  let metricsCache = null; 
-  
-  // Filter state
-  let filterState = { year: 'all', start: 'all', end: 'all' };
+  let metricsCache = null; // enriched per-supplier evaluation metrics, rebuilt whenever dataset changes
 
   const quadrantDividerPlugin = {
     id:'quadrantDivider',
@@ -463,20 +427,11 @@
   const fileInput = $('#fileInput');
   const importBtn = $('#importBtn');
   const resetBtn = $('#resetBtn');
-  const exportBtn = $('#exportBtn');
 
   importBtn.addEventListener('click', ()=>fileInput.click());
   fileInput.addEventListener('change', onFileSelected);
   resetBtn.addEventListener('click', clearData);
-  exportBtn.addEventListener('click', exportToExcel);
   $('#searchInput').addEventListener('input', renderTable);
-  
-  // Register Filter Events
-  $('#yearFilter').addEventListener('change', onFilterChange);
-  $('#startPeriodFilter').addEventListener('change', onFilterChange);
-  $('#endPeriodFilter').addEventListener('change', onFilterChange);
-  $('#clearFiltersBtn').addEventListener('click', clearFilters);
-
   document.querySelectorAll('thead th[data-key]').forEach(th=>{
     th.addEventListener('click', ()=>{
       const key = th.dataset.key;
@@ -553,6 +508,7 @@
 
     const hasCountData = cols.some(c=>c.type==='count');
 
+    // ordered unique period keys, based on amount columns primarily
     const periodOrder = [];
     cols.forEach(c=>{
       if(c.type==='amount' && periodOrder.indexOf(c.periodKey)===-1) periodOrder.push(c.periodKey);
@@ -581,7 +537,7 @@
       const totalAmount = periodOrder.reduce((s,pk)=>s+months[pk].amount,0);
       const totalCount = periodOrder.reduce((s,pk)=>s+months[pk].count,0) + countNoPeriod;
 
-      if(totalAmount === 0 && totalCount === 0) continue;
+      if(totalAmount === 0 && totalCount === 0) continue; // skip fully empty rows
       suppliers.push({name, months, totalAmount, totalCount});
     }
 
@@ -609,6 +565,9 @@
   const ORDERS_SUPPLIER_RE = /fournisseur|vendor|supplier/i;
   const ORDERS_TOTAL_RE = /^total$|montant|amount/i;
 
+  // A file is treated as a "purchase order log" (one row per order, possibly interleaved
+  // with group/subtotal rows from an ERP export) when its header exposes at least a
+  // reference/date/supplier column. Otherwise it's treated as the wide amounts format.
   function detectFileType(header){
     const hasRef = findColIndex(header, ORDERS_REF_RE) > -1;
     const hasDate = findColIndex(header, ORDERS_DATE_RE) > -1;
@@ -628,7 +587,10 @@
     const totalIdx = findColIndex(header, ORDERS_TOTAL_RE);
     if(dateIdx === -1 || supIdx === -1) throw new Error("Colonnes 'date' et 'fournisseur' introuvables dans ce fichier.");
 
-    const bySupplier = {};
+    // Subtotal/group rows (common in ERP exports grouped by supplier/year/month) have a
+    // blank date or blank supplier — real order lines always have both, so filtering on
+    // that is enough to skip them without needing to recognize a specific reference format.
+    const bySupplier = {}; // normKey -> {displayName, periods:{pk:{count, amount}}}
     let rowsUsed = 0;
 
     for(let r=1;r<rows.length;r++){
@@ -682,6 +644,10 @@
     };
   }
 
+  // Merges a newly-imported source into whatever was previously stored for that slot so
+  // successive monthly imports accumulate into one running history instead of replacing it.
+  // Periods covered by the new file overwrite the old values for those periods (in case a
+  // month's figures were corrected); periods only present in the old file are kept untouched.
   function mergeSource(oldSource, newSource){
     if(!oldSource) return newSource;
 
@@ -689,7 +655,7 @@
     const periodKeys = Array.from(periodSet).sort();
     const newPeriodSet = new Set(newSource.periodKeys);
 
-    const supplierMap = {};
+    const supplierMap = {}; // normKey -> {name, normKey, months:{pk:{amount,count}}}
     function ensure(normKey, displayName){
       if(!supplierMap[normKey]) supplierMap[normKey] = {name:displayName, normKey, months:{}};
       return supplierMap[normKey];
@@ -699,15 +665,15 @@
       const normKey = s.normKey || normalize(s.name);
       const b = ensure(normKey, s.name);
       oldSource.periodKeys.forEach(pk=>{
-        if(newPeriodSet.has(pk)) return;
+        if(newPeriodSet.has(pk)) return; // this period is authoritatively replaced by newSource below
         b.months[pk] = {amount:s.months[pk].amount, count:s.months[pk].count};
       });
     });
     newSource.suppliers.forEach(s=>{
       const normKey = s.normKey || normalize(s.name);
-      const b = ensure(normKey, s.name);
+      const b = ensure(normKey, s.name); // newer display name wins
       b.name = s.name;
-      newSource.periodKeys.forEach(pk=>{ b.months[pk] = {amount:s.months[pk].amount, count:s.months[pk].count}; });
+      newSource.periodKeys.forEach(pk=>{ b.months[pk] = {amount:s.months[pk].amount, count:s.months[pk].count}; }); // overwrite this period
     });
 
     const suppliers = Object.keys(supplierMap).map(k=>{
@@ -736,6 +702,10 @@
     };
   }
 
+  // Merges whichever source(s) are loaded into the single shape every render function expects.
+  // Amounts take priority for any period they cover; the orders log fills in order counts
+  // everywhere, and also supplies amount totals for periods the amounts file doesn't cover
+  // (e.g. more recent months only present in the order log).
   function buildDataset(){
     if(!amountsSource && !ordersSource) return null;
 
@@ -746,7 +716,7 @@
     const periodLabels = periodKeys.map(periodLabelFromKey);
     const amountsPeriodSet = new Set(amountsSource ? amountsSource.periodKeys : []);
 
-    const supplierMap = {};
+    const supplierMap = {}; // normKey -> {name, months:{pk:{amount,count}}}
     function ensureSupplier(normKey, displayName){
       if(!supplierMap[normKey]) supplierMap[normKey] = {name:displayName, months:{}};
       periodKeys.forEach(pk=>{ if(!supplierMap[normKey].months[pk]) supplierMap[normKey].months[pk] = {amount:0, count:0}; });
@@ -759,7 +729,7 @@
         const bucket = ensureSupplier(normKey, s.name);
         amountsSource.periodKeys.forEach(pk=>{
           bucket.months[pk].amount += s.months[pk].amount;
-          bucket.months[pk].count += s.months[pk].count;
+          bucket.months[pk].count += s.months[pk].count; // in case the amounts file itself had a count column
         });
       });
     }
@@ -810,7 +780,6 @@
           saveSource(STORAGE_KEY_AMOUNTS, amountsSource);
         }
         dataset = buildDataset();
-        initFilters();
         renderAll();
       } catch(err){
         alert("Impossible de lire ce fichier : " + err.message);
@@ -826,97 +795,31 @@
 
   async function saveSource(key, source){
     try{
-      await store.set(key, JSON.stringify(source));
+      await window.storage.set(key, JSON.stringify(source), false);
     } catch(err){ console.error('Storage error', err); }
   }
 
   async function loadSources(){
     try{
-      const res = await store.get(STORAGE_KEY_AMOUNTS);
+      const res = await window.storage.get(STORAGE_KEY_AMOUNTS, false);
       if(res && res.value) amountsSource = JSON.parse(res.value);
-    } catch(err){ }
+    } catch(err){ /* nothing stored yet */ }
     try{
-      const res = await store.get(STORAGE_KEY_ORDERS);
+      const res = await window.storage.get(STORAGE_KEY_ORDERS, false);
       if(res && res.value) ordersSource = JSON.parse(res.value);
-    } catch(err){ }
+    } catch(err){ /* nothing stored yet */ }
     dataset = buildDataset();
-    initFilters();
     renderAll();
   }
 
   async function clearData(){
     if(!confirm('Effacer toutes les données importées (montants et commandes) ? Cette action est irréversible.')) return;
-    try{ await store.delete(STORAGE_KEY_AMOUNTS); } catch(err){}
-    try{ await store.delete(STORAGE_KEY_ORDERS); } catch(err){}
+    try{ await window.storage.delete(STORAGE_KEY_AMOUNTS, false); } catch(err){}
+    try{ await window.storage.delete(STORAGE_KEY_ORDERS, false); } catch(err){}
     amountsSource = null;
     ordersSource = null;
     dataset = null;
-    clearFilters();
     renderAll();
-  }
-
-  /* ---------- FILTERING ENGINE ---------- */
-  function initFilters(){
-    if(!dataset) return;
-    
-    // Extract unique years
-    const years = Array.from(new Set(dataset.periodKeys.map(pk => pk.split('-')[0]))).sort();
-    
-    let yearHtml = '<option value="all">Toutes les années</option>';
-    years.forEach(y => { yearHtml += `<option value="${y}">${y}</option>`; });
-    $('#yearFilter').innerHTML = yearHtml;
-
-    let startHtml = '<option value="all">Début de période</option>';
-    let endHtml = '<option value="all">Fin de période</option>';
-    
-    dataset.periodKeys.forEach(pk => {
-      const label = periodLabelFromKey(pk);
-      startHtml += `<option value="${pk}">${label}</option>`;
-      endHtml += `<option value="${pk}">${label}</option>`;
-    });
-
-    $('#startPeriodFilter').innerHTML = startHtml;
-    $('#endPeriodFilter').innerHTML = endHtml;
-  }
-
-  function onFilterChange(){
-    filterState.year = $('#yearFilter').value;
-    filterState.start = $('#startPeriodFilter').value;
-    filterState.end = $('#endPeriodFilter').value;
-
-    // Safety: enforce start <= end chronologically
-    if(filterState.start !== 'all' && filterState.end !== 'all' && filterState.start > filterState.end){
-      const temp = filterState.start;
-      filterState.start = filterState.end;
-      filterState.end = temp;
-      $('#startPeriodFilter').value = filterState.start;
-      $('#endPeriodFilter').value = filterState.end;
-    }
-
-    renderAll();
-  }
-
-  function clearFilters(){
-    $('#yearFilter').value = 'all';
-    $('#startPeriodFilter').value = 'all';
-    $('#endPeriodFilter').value = 'all';
-    filterState = { year: 'all', start: 'all', end: 'all' };
-    renderAll();
-  }
-
-  function getActivePeriods(){
-    if(!dataset) return [];
-    let periods = dataset.periodKeys.slice();
-    if(filterState.year !== 'all'){
-      periods = periods.filter(pk => pk.startsWith(filterState.year + '-'));
-    }
-    if(filterState.start !== 'all'){
-      periods = periods.filter(pk => pk >= filterState.start);
-    }
-    if(filterState.end !== 'all'){
-      periods = periods.filter(pk => pk <= filterState.end);
-    }
-    return periods;
   }
 
   function renderAll(){
@@ -925,30 +828,14 @@
       $('#emptyState').style.display = 'block';
       $('#dashboard').style.display = 'none';
       resetBtn.style.display = 'none';
-      exportBtn.style.display = 'none';
       $('#subLine').textContent = 'Aucun fichier importé';
       return;
     }
-    
-    const activePeriods = getActivePeriods();
-    
     $('#emptyState').style.display = 'none';
     $('#dashboard').style.display = 'block';
     resetBtn.style.display = 'inline-block';
-    exportBtn.style.display = 'inline-block';
-    
-    if (activePeriods.length === 0) {
-      $('#subLine').textContent = 'Aucune donnée sur la période sélectionnée';
-      $('#periodTag').textContent = 'Période vide';
-      // Render clean empty dashboard
-      metricsCache = [];
-      renderTickets();
-      return;
-    }
-
-    const activeLabels = activePeriods.map(periodLabelFromKey);
-    $('#subLine').textContent = dataset.suppliers.length + ' fournisseurs · ' + activeLabels.join(' → ');
-    $('#periodTag').textContent = activeLabels[0] + ' – ' + activeLabels[activeLabels.length-1];
+    $('#subLine').textContent = dataset.suppliers.length + ' fournisseurs · ' + dataset.periodLabels.join(' → ');
+    $('#periodTag').textContent = dataset.periodLabels[0] + ' – ' + dataset.periodLabels[dataset.periodLabels.length-1];
 
     metricsCache = computeSupplierMetrics();
 
@@ -959,6 +846,9 @@
     renderTable();
   }
 
+  // Renders one chart in isolation: if it throws (bad data, library not loaded, etc.)
+  // the error is shown inline in that chart's box instead of silently leaving it blank
+  // and instead of aborting the other charts still queued to render.
   function safeRender(fn, canvasId){
     try{
       fn();
@@ -985,6 +875,7 @@
     $('#sourcesStatus').innerHTML = chip('Montants', amountsSource) + chip('Commandes', ordersSource);
   }
 
+  // Linear regression slope of a series (index = x, value = y)
   function linRegSlope(vals){
     const n = vals.length;
     if(n < 2) return 0;
@@ -1013,31 +904,16 @@
     return {cls:'weak', text:'Occasionnel'};
   }
 
+  // Computes, once per dataset, a per-supplier evaluation: regularity (%), growth trend (%),
+  // and a 0-100 composite score blending purchase volume, order regularity and growth momentum.
   function computeSupplierMetrics(){
     if(!dataset) return [];
-    const activePeriods = getActivePeriods();
-    const nPeriods = activePeriods.length;
-    if(nPeriods === 0) return [];
+    const nPeriods = dataset.periodKeys.length;
+    const maxTotal = Math.max(...dataset.suppliers.map(s=>s.totalAmount), 1);
+    const grandTotal = dataset.suppliers.reduce((s,x)=>s+x.totalAmount,0) || 1;
 
-    // Filter suppliers active in the selected timeframe
-    const suppliersInPeriod = dataset.suppliers.map(s=>{
-      const months = {};
-      let totalAmount = 0;
-      let totalCount = 0;
-      activePeriods.forEach(pk=>{
-        const m = s.months[pk] || {amount:0, count:0};
-        months[pk] = m;
-        totalAmount += m.amount;
-        totalCount += m.count;
-      });
-      return {name:s.name, months, totalAmount, totalCount};
-    }).filter(s => s.totalAmount > 0 || s.totalCount > 0);
-
-    const maxTotal = Math.max(...suppliersInPeriod.map(s=>s.totalAmount), 1);
-    const grandTotal = suppliersInPeriod.reduce((s,x)=>s+x.totalAmount,0) || 1;
-
-    return suppliersInPeriod.map(s=>{
-      const vals = activePeriods.map(pk=>s.months[pk].amount);
+    return dataset.suppliers.map(s=>{
+      const vals = dataset.periodKeys.map(pk=>s.months[pk].amount);
       const activeMonths = vals.filter(v=>v>0).length;
       const regularity = nPeriods ? (activeMonths/nPeriods)*100 : 0;
 
@@ -1068,35 +944,23 @@
   }
 
   function monthlyTotals(){
-    const activePeriods = getActivePeriods();
-    return activePeriods.map(pk=>{
+    return dataset.periodKeys.map(pk=>{
       let amount=0, count=0;
-      dataset.suppliers.forEach(s=>{ 
-        if (s.months[pk]) {
-          amount += s.months[pk].amount; 
-          count += s.months[pk].count; 
-        }
-      });
-      return {pk, amount, count};
+      dataset.suppliers.forEach(s=>{ amount += s.months[pk].amount; count += s.months[pk].count; });
+      return {amount, count};
     });
   }
 
   function renderTickets(){
-    const activePeriods = getActivePeriods();
-    if(activePeriods.length === 0){
-      $('#tickets').innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--muted); padding: 12px;">Aucun ticket à afficher pour cette sélection.</div>';
-      return;
-    }
-
     const totals = monthlyTotals();
-    const grandTotal = metricsCache.reduce((s,x)=>s+x.total,0);
-    const activeSuppliers = metricsCache.filter(s=>s.total>0).length;
-    const totalCount = metricsCache.reduce((s,x)=>s+x.count,0);
+    const grandTotal = dataset.suppliers.reduce((s,x)=>s+x.totalAmount,0);
+    const activeSuppliers = dataset.suppliers.filter(s=>s.totalAmount>0).length;
+    const totalCount = dataset.suppliers.reduce((s,x)=>s+x.totalCount,0);
 
     let bestIdx = 0;
     totals.forEach((t,i)=>{ if(t.amount > totals[bestIdx].amount) bestIdx = i; });
-    const bestMonthLabel = totals[bestIdx] ? periodLabelFromKey(totals[bestIdx].pk) : 'N/A';
-    const bestMonthValue = totals[bestIdx] ? totals[bestIdx].amount : 0;
+    const bestMonthLabel = dataset.periodLabels[bestIdx];
+    const bestMonthValue = totals[bestIdx].amount;
 
     let evolPct = null;
     if(totals.length >= 2){
@@ -1108,13 +972,13 @@
     const tickets = [
       {
         eyebrow:'Achats totaux', value: fmtTND(grandTotal),
-        foot: activePeriods.length + ' mois filtrés',
+        foot: dataset.periodLabels.length + ' mois suivis',
         stamp: evolPct===null ? null : (evolPct>=0 ? 'up' : 'down'),
         stampText: evolPct===null ? '' : (evolPct>=0?'▲':'▼') + Math.abs(evolPct).toFixed(0) + '%'
       },
       {
-        eyebrow:'Fournisseurs actifs', value: activeSuppliers + ' <small>/ ' + metricsCache.length + '</small>',
-        foot: 'actifs sur la période filtrée'
+        eyebrow:'Fournisseurs actifs', value: activeSuppliers + ' <small>/ ' + dataset.suppliers.length + '</small>',
+        foot: 'ayant généré un achat sur la période'
       },
       {
         eyebrow:'Commandes enregistrées',
@@ -1127,8 +991,8 @@
       },
       {
         eyebrow:'Fournisseurs réguliers',
-        value: metricsCache.filter(m=>m.regularity>=80).length + ' <small>/ ' + metricsCache.length + '</small>',
-        foot: 'actifs sur au moins 80% des mois filtrés'
+        value: metricsCache.filter(m=>m.regularity>=80).length + ' <small>/ ' + dataset.suppliers.length + '</small>',
+        foot: 'actifs sur au moins 80% des mois'
       },
       {
         eyebrow:'Score moyen',
@@ -1149,7 +1013,6 @@
 
   function renderEvolChart(){
     const totals = monthlyTotals();
-    const activePeriods = getActivePeriods();
     const ctx = $('#evolChart').getContext('2d');
     if(evolChartInstance) evolChartInstance.destroy();
 
@@ -1178,7 +1041,7 @@
 
     evolChartInstance = new Chart(ctx, {
       type:'bar',
-      data:{ labels: activePeriods.map(periodLabelFromKey), datasets },
+      data:{ labels: dataset.periodLabels, datasets },
       options:{
         responsive:true, maintainAspectRatio:false,
         interaction:{mode:'index', intersect:false},
@@ -1196,7 +1059,7 @@
   }
 
   function renderTopChart(){
-    const sorted = [...metricsCache].sort((a,b)=>b.total-a.total).slice(0,10);
+    const sorted = [...dataset.suppliers].sort((a,b)=>b.totalAmount-a.totalAmount).slice(0,10);
     const ctx = $('#topChart').getContext('2d');
     if(topChartInstance) topChartInstance.destroy();
     topChartInstance = new Chart(ctx, {
@@ -1204,7 +1067,7 @@
       data:{
         labels: sorted.map(s=>s.name.length>22 ? s.name.slice(0,20)+'…' : s.name),
         datasets:[{
-          data: sorted.map(s=>s.total),
+          data: sorted.map(s=>s.totalAmount),
           backgroundColor:'#E2841E',
           borderRadius:3
         }]
@@ -1266,8 +1129,7 @@
   }
 
   function sparkPath(months, w, h){
-    const activePeriods = getActivePeriods();
-    const vals = activePeriods.map(pk=>months[pk] ? months[pk].amount : 0);
+    const vals = dataset.periodKeys.map(pk=>months[pk].amount);
     const max = Math.max(...vals, 1);
     const step = w / Math.max(vals.length-1,1);
     const pts = vals.map((v,i)=>{
@@ -1330,65 +1192,17 @@
           </svg>
         </td>
       </tr>`;
-    }).join('') || `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px;">Aucun fournisseur ne correspond à votre recherche ou aux filtres actifs.</td></tr>`;
-  }
-
-  /* ---------- EXPORT ENGINE (SheetJS) ---------- */
-  function exportToExcel(){
-    if(!dataset || !metricsCache.length) {
-      alert("Aucune donnée à exporter.");
-      return;
-    }
-
-    const activePeriods = getActivePeriods();
-
-    // Sheet 1: General Supplier performance
-    const rowsSynth = metricsCache.map(r => ({
-      "Fournisseur": r.name,
-      "Volume d'achats (TND)": Math.round(r.total),
-      "Part (%)": Number(r.share.toFixed(2)),
-      "Nombre de commandes": dataset.hasCountData ? r.count : "N/A",
-      "Régularité des commandes (%)": Number(r.regularity.toFixed(1)),
-      "Taux de Croissance (%)": r.growth !== null ? Number(r.growth.toFixed(1)) : "N/A",
-      "Score global de performance (0-100)": r.score,
-      "Segment d'évaluation": scoreLabel(r.score).text
-    }));
-
-    const wsSynth = XLSX.utils.json_to_sheet(rowsSynth);
-
-    // Sheet 2: Cross-grid monthly breakdown
-    const rowsMensuels = metricsCache.map(r => {
-      const row = { "Fournisseur": r.name };
-      activePeriods.forEach(pk => {
-        row[periodLabelFromKey(pk)] = r.months[pk] ? Math.round(r.months[pk].amount) : 0;
-      });
-      row["Volume Total Filtré (TND)"] = Math.round(r.total);
-      return row;
-    });
-
-    const wsMensuels = XLSX.utils.json_to_sheet(rowsMensuels);
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, wsSynth, "Synthèse Performance");
-    XLSX.utils.book_append_sheet(wb, wsMensuels, "Détail Mensuel");
-
-    // File name based on filtered years/dates
-    let rangeTxt = "Tout";
-    if (filterState.year !== 'all') rangeTxt = filterState.year;
-    else if (filterState.start !== 'all' || filterState.end !== 'all') {
-      rangeTxt = (filterState.start !== 'all' ? filterState.start : 'Debut') + "_a_" + (filterState.end !== 'all' ? filterState.end : 'Fin');
-    }
-
-    XLSX.writeFile(wb, `Registre_Fournisseurs_Export_${rangeTxt}.xlsx`);
+    }).join('') || `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px;">Aucun fournisseur ne correspond à votre recherche.</td></tr>`;
   }
 
   function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
+    // init (inside startApp)
     renderAll();
     loadSources();
-  }
+  } // end startApp
 
   bootWhenReady();
 })();
