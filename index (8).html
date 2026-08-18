@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Espace Dashboards</title>
+<style>
+:root{
+  --navy:#0f2438;
+  --navy2:#16324f;
+  --paper:#f4f6f8;
+  --card:#ffffff;
+  --line:#e3e8ee;
+  --ink:#12202e;
+  --sub:#5b6b7a;
+  --amber:#e08a2d;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Segoe UI',Arial,sans-serif;background:var(--paper);color:var(--ink);height:100vh;display:flex;overflow:hidden;}
+
+/* Sidebar */
+.sidebar{
+  width:220px;
+  background:linear-gradient(180deg,var(--navy) 0%,var(--navy2) 100%);
+  color:#fff;
+  display:flex;
+  flex-direction:column;
+  flex-shrink:0;
+}
+.sidebar h1{
+  font-size:15px;
+  padding:20px 18px 14px;
+  border-bottom:1px solid rgba(255,255,255,0.12);
+  font-weight:600;
+  letter-spacing:.3px;
+}
+.nav-item{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:14px 18px;
+  cursor:pointer;
+  font-size:13.5px;
+  color:rgba(255,255,255,0.78);
+  border-left:3px solid transparent;
+  transition:all .15s ease;
+}
+.nav-item:hover{background:rgba(255,255,255,0.06);color:#fff;}
+.nav-item.active{
+  background:rgba(255,255,255,0.1);
+  color:#fff;
+  border-left-color:var(--amber);
+  font-weight:600;
+}
+.nav-item .dot{
+  width:8px;height:8px;border-radius:50%;
+  background:currentColor;opacity:.5;flex-shrink:0;
+}
+.nav-item.active .dot{opacity:1;background:var(--amber);}
+.sidebar-footer{
+  margin-top:auto;
+  padding:14px 18px;
+  font-size:11px;
+  color:rgba(255,255,255,0.4);
+  border-top:1px solid rgba(255,255,255,0.1);
+}
+
+/* Main area */
+.main{flex:1;display:flex;flex-direction:column;min-width:0;}
+.topbar{
+  height:52px;
+  background:var(--card);
+  border-bottom:1px solid var(--line);
+  display:flex;align-items:center;
+  padding:0 20px;
+  font-size:14px;
+  font-weight:600;
+  color:var(--navy);
+  flex-shrink:0;
+}
+.frame-wrap{flex:1;position:relative;}
+iframe{
+  position:absolute;
+  top:0;left:0;width:100%;height:100%;
+  border:none;
+  display:none;
+}
+iframe.active{display:block;}
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <h1>📊 Mes Dashboards</h1>
+  <div class="nav-item active" data-target="frame-marge" data-title="Marges Assurance — Bons de Dépense">
+    <span class="dot"></span> Marges Assurance
+  </div>
+  <div class="nav-item" data-target="frame-achref" data-title="Assurances & Véhicules">
+    <span class="dot"></span> Assurances & Véhicules
+  </div>
+  <div class="nav-item" data-target="frame-registre" data-title="Registre Fournisseurs">
+    <span class="dot"></span> Registre Fournisseurs
+  </div>
+  <div class="sidebar-footer">3 projets réunis</div>
+</div>
+
+<div class="main">
+  <div class="topbar" id="topbar-title">Marges Assurance — Bons de Dépense</div>
+  <div class="frame-wrap">
+    <iframe id="frame-marge" class="active" src="dashboard_bons_depense.html"></iframe>
+    <iframe id="frame-achref" src="achref.html"></iframe>
+    <iframe id="frame-registre" src="registre.html"></iframe>
+  </div>
+</div>
+
+<script>
+document.querySelectorAll('.nav-item').forEach(function(item){
+  item.addEventListener('click', function(){
+    document.querySelectorAll('.nav-item').forEach(function(i){i.classList.remove('active');});
+    item.classList.add('active');
+    document.querySelectorAll('iframe').forEach(function(f){f.classList.remove('active');});
+    document.getElementById(item.dataset.target).classList.add('active');
+    document.getElementById('topbar-title').textContent = item.dataset.title;
+  });
+});
+</script>
+
+</body>
+</html>
